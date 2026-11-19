@@ -60,7 +60,7 @@ __picker.describe('.work-head');     // just get the descriptor
 
 Add `?picker=off` to any URL to skip the injection.
 
-## Notes for agents
+## Notes
 
-`AGENTS.md` is the handover doc: architecture, protocol, limitations and a
-concrete backlog for extending it.
+`NOTES.md` carries the handover: what is load-bearing, what is limited, and a
+backlog of what to build next.
