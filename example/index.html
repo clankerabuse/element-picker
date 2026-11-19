@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Northline — a mock product page</title>
+<style>
+  :root {
+    --ink: #101010;
+    --paper: #f2f0ea;
+    --muted: #6f6b62;
+    --line: #d8d3c7;
+    --accent: #b8492a;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: ui-sans-serif, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 28px; }
+  a { color: inherit; }
+  .mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+  }
+
+  /* ---- top bar ---- */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 0; border-bottom: 1px solid var(--line);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: -0.01em; }
+  .brand-mark {
+    width: 22px; height: 22px; background: var(--ink); color: var(--paper);
+    display: grid; place-items: center; font-size: 11px; border-radius: 2px;
+  }
+  .nav { display: flex; gap: 26px; }
+  .nav a { text-decoration: none; color: var(--muted); font-size: 13px; }
+  .nav a:hover { color: var(--ink); }
+  .nav a[aria-current] { color: var(--ink); font-weight: 600; }
+  .cart-btn {
+    font: inherit; font-size: 13px; padding: 7px 14px; cursor: pointer;
+    background: transparent; border: 1px solid var(--ink); border-radius: 999px;
+  }
+  .cart-btn:hover { background: var(--ink); color: var(--paper); }
+
+  /* ---- hero ---- */
+  .hero { padding: 84px 0 66px; display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 56px; align-items: center; }
+  .eyebrow { color: var(--accent); margin-bottom: 18px; }
+  .hero h1 {
+    margin: 0 0 18px; font-size: 58px; line-height: 1.02; letter-spacing: -0.035em; font-weight: 600;
+  }
+  .hero p.lede { margin: 0 0 28px; font-size: 18px; color: var(--muted); max-width: 42ch; }
+  .cta-row { display: flex; gap: 12px; align-items: center; }
+  .btn {
+    font: inherit; font-size: 14px; padding: 12px 22px; border-radius: 999px;
+    border: 1px solid var(--ink); background: var(--ink); color: var(--paper); cursor: pointer;
+  }
+  .btn.ghost { background: transparent; color: var(--ink); }
+  .btn:hover { opacity: 0.85; }
+  .hero-figure {
+    aspect-ratio: 4 / 5; border: 1px solid var(--line); background: #e8e4da;
+    display: grid; place-items: center; position: relative; overflow: hidden;
+  }
+  .hero-figure::after {
+    content: ""; position: absolute; inset: 26px;
+    border: 1px solid #cdc7b8;
+    background: repeating-linear-gradient(45deg, transparent 0 11px, #dcd7cb 11px 12px);
+  }
+  .hero-figure span { position: relative; z-index: 1; background: var(--paper); padding: 4px 10px; }
+
+  /* ---- stats strip ---- */
+  .stats {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  }
+  .stat { padding: 24px 0; border-right: 1px solid var(--line); }
+  .stat:last-child { border-right: 0; }
+  .stat .n { font-size: 26px; letter-spacing: -0.02em; }
+  .stat .k { color: var(--muted); }
+
+  /* ---- sections ---- */
+  section { padding: 72px 0; }
+  .sec-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 34px; gap: 20px; }
+  .sec-head h2 { margin: 0; font-size: 30px; letter-spacing: -0.025em; font-weight: 600; }
+  .sec-head a { color: var(--muted); font-size: 13px; text-decoration: none; border-bottom: 1px solid var(--line); }
+  .sec-head a:hover { color: var(--ink); border-color: var(--ink); }
+
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+  .card { border: 1px solid var(--line); background: #faf9f4; display: flex; flex-direction: column; }
+  .card-thumb {
+    height: 168px; border-bottom: 1px solid var(--line);
+    display: grid; place-items: center; color: var(--muted);
+    background: linear-gradient(160deg, #eeeade, #e2ddd0);
+  }
+  .card-body { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+  .card h3 { margin: 0; font-size: 16px; font-weight: 600; }
+  .card .desc { margin: 0; color: var(--muted); font-size: 13.5px; flex: 1; }
+  .card-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
+  .price { font-variant-numeric: tabular-nums; font-size: 15px; }
+  .tag { font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; padding: 3px 7px; border: 1px solid var(--line); color: var(--muted); border-radius: 999px; }
+  .tag.new { border-color: var(--accent); color: var(--accent); }
+
+  /* ---- spec table ---- */
+  .specs { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .specs caption { text-align: left; color: var(--muted); padding-bottom: 12px; font-size: 12px; }
+  .specs th, .specs td { text-align: left; padding: 12px 10px; border-bottom: 1px solid var(--line); }
+  .specs th { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+  .specs tbody tr:hover { background: #f7f5ee; }
+  .specs td.num { font-variant-numeric: tabular-nums; text-align: right; }
+
+  /* ---- two column: list + form ---- */
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; }
+  .feature-list { list-style: none; margin: 0; padding: 0; }
+  .feature-list li {
+    display: flex; gap: 14px; padding: 16px 0; border-bottom: 1px solid var(--line);
+  }
+  .feature-list .idx { color: var(--muted); flex: none; }
+  .feature-list strong { display: block; font-weight: 600; }
+  .feature-list small { color: var(--muted); }
+
+  form { display: grid; gap: 14px; }
+  .field { display: grid; gap: 6px; }
+  .field label { font-size: 12px; color: var(--muted); }
+  .field input, .field select, .field textarea {
+    font: inherit; font-size: 14px; padding: 10px 12px; background: #faf9f4;
+    border: 1px solid var(--line); border-radius: 3px; color: var(--ink);
+  }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    outline: 2px solid var(--ink); outline-offset: 1px;
+  }
+  .checkline { display: flex; gap: 9px; align-items: flex-start; font-size: 13px; color: var(--muted); }
+  .checkline input { margin-top: 3px; }
+
+  /* ---- quote ---- */
+  .quote { border-left: 2px solid var(--accent); padding: 6px 0 6px 26px; margin: 0; }
+  .quote blockquote { margin: 0 0 12px; font-size: 22px; line-height: 1.4; letter-spacing: -0.015em; }
+  .quote figcaption { color: var(--muted); font-size: 13px; }
+
+  /* ---- picker playground ---- */
+  .demo-stage { display: grid; gap: 18px; align-content: start; }
+  .demo-stage nl-gauge { display: block; }
+  .demo-stage iframe { width: 100%; height: 236px; border: 1px solid var(--line); background: #faf9f4; }
+  .feature-list code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px;
+    letter-spacing: 0.04em; text-transform: none;
+  }
+  .demo-five { margin: 30px 0 0; padding: 16px 18px; border: 1px dashed var(--line); color: var(--muted); font-size: 13px; }
+  .demo-five strong { color: var(--ink); font-weight: 600; }
+
+  /* ---- footer ---- */
+  footer { border-top: 1px solid var(--line); padding: 40px 0 28px; color: var(--muted); font-size: 13px; }
+  .foot-grid { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 28px; margin-bottom: 34px; }
+  .foot-grid h4 { margin: 0 0 10px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink); }
+  .foot-grid ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
+  .foot-grid a { text-decoration: none; }
+  .foot-grid a:hover { color: var(--ink); }
+  .legal { display: flex; justify-content: space-between; border-top: 1px solid var(--line); padding-top: 18px; font-size: 12px; }
+
+  @media (max-width: 860px) {
+    .hero, .split { grid-template-columns: 1fr; gap: 32px; }
+    .hero h1 { font-size: 40px; }
+    .cards { grid-template-columns: 1fr; }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .foot-grid { grid-template-columns: 1fr 1fr; }
+    .nav { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="wrap">
+  <div class="topbar">
+    <div class="brand"><span class="brand-mark">N</span> Northline</div>
+    <nav class="nav">
+      <a href="#catalog" aria-current="page">Catalog</a>
+      <a href="#specs">Specs</a>
+      <a href="#contact">Contact</a>
+      <a href="#picker-demo">Demo</a>
+      <a href="notes.html">Notes</a>
+    </nav>
+    <button class="cart-btn" type="button">Cart · 2</button>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <section class="hero" style="padding-bottom:56px">
+      <div class="hero-copy">
+        <p class="eyebrow mono">Spring catalog / 05 pieces</p>
+        <h1>Tools that stay out of the way.</h1>
+        <p class="lede">Small hardware for people who own four screwdrivers and only ever reach for one. Machined steel, oiled walnut, no app.</p>
+        <div class="cta-row">
+          <button class="btn" type="button">poop</button>
+          <button class="btn ghost" type="button">read notes</button>
+        </div>
+      </div>
+      <div class="hero-figure"><span class="mono">fig. 01 — the handle</span></div>
+    </section>
+  </div>
+
+  <div class="wrap">
+    <div class="stats">
+      <div class="stat"><div class="n">99954654654</div><div class="k mono">pieces</div></div>
+      <div class="stat"><div class="n">11</div><div class="k mono">years</div></div>
+      <div class="stat"><div class="n">340g</div><div class="k mono">in hand</div></div>
+      <div class="stat"><div class="n">∞</div><div class="k mono">warranty</div></div>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <section id="catalog">
+      <div class="sec-head">
+        <h2>The catalog</h2>
+        <a href="#catalog">view all five →</a>
+      </div>
+      <div class="cards">
+        <article class="card">
+          <div class="card-thumb mono">photo — driver</div>
+          <div class="card-body">
+            <h3>Long driver</h3>
+            <p class="desc">A 300mm shaft for the screw behind the drawer.</p>
+            <div class="card-foot"><span class="price">$48</span><span class="tag new">new</span></div>
+          </div>
+        </article>
+        <article class="card">
+          <div class="card-thumb mono">photo — square</div>
+          <div class="card-body">
+            <h3>Machinist square</h3>
+            <p class="desc">Ground flat, checked against granite, off by nothing.</p>
+            <div class="card-foot"><span class="price">$86</span><span class="tag">in stock</span></div>
+          </div>
+        </article>
+        <article class="card">
+          <div class="card-thumb mono">photo — rule</div>
+          <div class="card-body">
+            <h3>150mm rule</h3>
+            <p class="desc">Etched both edges, no shadow line, sits flat.</p>
+            <div class="card-foot"><span class="price">$34</span><span class="tag">backorder</span></div>
+          </div>
+        </article>
+      </div>
+    </section>
+  </div>
+
+  <div class="wrap">
+    <section id="specs">
+      <div class="sec-head"><h2>Specs</h2><a href="notes.html">material notes →</a></div>
+      <table class="specs">
+        <caption>All measurements metric. Weights ±4g.</caption>
+        <thead>
+          <tr><th>Piece</th><th>Material</th><th>Length</th><th class="num">Weight</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Long driver</td><td>O1 tool steel, walnut</td><td>310 mm</td><td class="num">142 g</td></tr>
+          <tr><td>Machinist square</td><td>Cast iron, ground</td><td>75 mm</td><td class="num">188 g</td></tr>
+          <tr><td>150mm rule</td><td>Spring steel, satin</td><td>150 mm</td><td class="num">46 g</td></tr>
+          <tr><td>Centre punch</td><td>HSS, knurled body</td><td>120 mm</td><td class="num">61 g</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+
+  <div class="wrap">
+    <section class="split" id="contact">
+      <div>
+        <h2 style="margin:0 0 22px;font-size:30px;letter-spacing:-0.025em">What we don't do</h2>
+        <ul class="feature-list">
+          <li><span class="idx mono">01</span><div><strong>No app</strong><small>The tool has no firmware and never will.</small></div></li>
+          <li><span class="idx mono">02</span><div><strong>No subscription</strong><small>Buy the square, own the square.</small></div></li>
+          <li><span class="idx mono">03</span><div><strong>No filler catalog</strong><small>Five pieces, restocked twice a year.</small></div></li>
+        </ul>
+      </div>
+      <div>
+        <h2 style="margin:0 0 22px;font-size:30px;letter-spacing:-0.025em">Restock notice</h2>
+        <form onsubmit="return false">
+          <div class="field">
+            <label for="email">Email</label>
+            <input id="email" type="email" placeholder="you@example.com" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="interest">What are you waiting on?</label>
+            <select id="interest">
+              <option>Long driver</option>
+              <option>Machinist square</option>
+              <option>150mm rule</option>
+              <option>Everything</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="msg">Note (optional)</label>
+            <textarea id="msg" rows="3" placeholder="Anything else?"></textarea>
+          </div>
+          <label class="checkline">
+            <input type="checkbox"> One email per restock. That is all.
+          </label>
+          <button class="btn" type="submit">Notify me</button>
+        </form>
+      </div>
+    </section>
+  </div>
+
+  <div class="wrap">
+    <section style="padding-top:24px">
+      <figure class="quote">
+        <blockquote>“I bought the square first, then quietly the rest of the catalog over two years.”</blockquote>
+        <figcaption>— <strong>R. Okafor</strong>, cabinetmaker, Leeds</figcaption>
+      </figure>
+    </section>
+  </div>
+
+  <div class="wrap">
+    <section id="picker-demo">
+      <div class="sec-head">
+        <h2>Picker playground</h2>
+        <span class="mono">shadow · iframe · queue · live edit</span>
+      </div>
+      <div class="split">
+        <div>
+          <ul class="feature-list">
+            <li><span class="idx mono">01</span><div><strong>Queue with notes</strong><small>Click <code>queue</code> (bottom-left, or Alt+Q), then click the five things below one by one — type a note, press Enter. Esc ends the run; read the queue back at <code>/__picks</code>.</small></div></li>
+            <li><span class="idx mono">02</span><div><strong>Shadow DOM</strong><small>The button inside the gauge is in a shadow root. The pick’s selector crosses each boundary with <code>&gt;&gt;&gt;</code> and reports the shadow root’s own rules.</small></div></li>
+            <li><span class="idx mono">03</span><div><strong>Same-origin iframe</strong><small>The framed card is a separate document with its own injected picker. A pick inside it carries the frame chain, e.g. <code>#picker-demo &gt; iframe</code>.</small></div></li>
+            <li><span class="idx mono">04</span><div><strong>Live edit</strong><small>Pick anything, then type e.g. <code>color: #b8492a</code> into the box that appears and press Enter. It lands on <code>el.style</code> immediately and is POSTed to <code>/__edit</code> — see it before touching the source. An empty value removes the property.</small></div></li>
+          </ul>
+          <p class="demo-five"><strong>The five things:</strong> 1 the hero heading · 2 the cart button · 3 the gauge’s button · 4 the framed card’s button · 5 the quote above.</p>
+        </div>
+        <div class="demo-stage">
+          <nl-gauge label="jaw capacity — 64%"></nl-gauge>
+          <iframe src="picker-frame.html" title="Same-origin frame fixture" loading="lazy"></iframe>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div>
+        <div class="brand" style="margin-bottom:10px"><span class="brand-mark">N</span> Northline</div>
+        <p style="margin:0;max-width:34ch">Small-batch hand tools, made in one building in Sheffield since 2014.</p>
+      </div>
+      <div>
+        <h4>Shop</h4>
+        <ul><li><a href="#catalog">Catalog</a></li><li><a href="#specs">Specs</a></li><li><a href="#contact">Restock</a></li></ul>
+      </div>
+      <div>
+        <h4>Read</h4>
+        <ul><li><a href="notes.html">Material notes</a></li><li><a href="notes.html#care">Care guide</a></li></ul>
+      </div>
+      <div>
+        <h4>Elsewhere</h4>
+        <ul><li><a href="#">Repairs</a></li><li><a href="#">Wholesale</a></li><li><a href="#">Post</a></li></ul>
+      </div>
+    </div>
+    <div class="legal">
+      <span>© 2026 Northline Tool Co.</span>
+      <span class="mono">mock page · picker test fixture</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // fixture only — a shadow-DOM widget so the picker's " >>> " piercing and
+  // shadow-root rule reporting are demoable
+  customElements.define('nl-gauge', class extends HTMLElement {
+    connectedCallback() {
+      if (this.shadowRoot) return;
+      const sr = this.attachShadow({ mode: 'open' });
+      sr.innerHTML = `
+        <style>
+          :host { font-family: inherit; color: #101010; }
+          .gauge { border: 1px solid #d8d3c7; background: #faf9f4; padding: 16px 18px; display: grid; gap: 10px; }
+          .gauge .label { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: #6f6b62; }
+          .gauge .bar { height: 12px; background: #e8e4da; border: 1px solid #d8d3c7; position: relative; }
+          .gauge .bar i { position: absolute; left: 0; top: 0; bottom: 0; width: 64%; background: #101010; }
+          .gauge button { font: inherit; font-size: 12.5px; padding: 7px 14px; cursor: pointer;
+            background: transparent; border: 1px solid #101010; border-radius: 999px; color: #101010; justify-self: start; }
+          .gauge button:hover { background: #101010; color: #f2f0ea; }
+        </style>
+        <div class="gauge">
+          <span class="label">${this.getAttribute('label') || 'gauge'}</span>
+          <div class="bar"><i></i></div>
+          <button type="button">Zero the jaw</button>
+        </div>`;
+    }
+  });
+</script>
+
+</body>
+</html>
