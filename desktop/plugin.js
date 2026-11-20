@@ -93,7 +93,7 @@ export const PICK_CODE = `(function () {
 
     var hostEl = document.createElement('hermes-element-picker');
     hostEl.setAttribute('data-element-edit-host', '');
-    hostEl.style.cssText = 'position:fixed;inset:0;width:0;height:0;z-index:2147483647;pointer-events:none;overflow:visible;display:block';
+    hostEl.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;z-index:2147483647;pointer-events:auto;cursor:crosshair;background:transparent;overflow:visible;display:block;user-select:none';
     var sr = hostEl;
 
     var box = document.createElement('div');
@@ -129,7 +129,7 @@ export const PICK_CODE = `(function () {
     var btnDone = document.createElement('button');
     btnDone.type = 'button';
     btnDone.setAttribute('data-picker-action', 'done');
-    btnDone.textContent = COUNT > 0 ? 'Done (' + COUNT + ')' : 'Esc';
+    btnDone.textContent = 'Esc';
     btnDone.style.cssText = 'font:inherit;font-size:10.5px;padding:3px 8px;border-radius:999px;border:1px solid rgba(255,255,255,0.14);background:rgba(255,255,255,0.08);color:#f8fafc;cursor:pointer;white-space:nowrap';
 
     function syncHud() {
@@ -434,25 +434,91 @@ export const PICK_CODE = `(function () {
       return false;
     }
 
+    function isHudNode(n) {
+      if (!n) return false;
+      if (n === hud) return true;
+      if (hud.contains && hud.contains(n)) return true;
+      return false;
+    }
+
+    function deepElementFromPoint(x, y) {
+      var prev = hostEl.style.pointerEvents;
+      hostEl.style.pointerEvents = 'none';
+      var el = null;
+      try {
+        el = document.elementFromPoint(x, y);
+        var guard = 0;
+        while (el && el.shadowRoot && typeof el.shadowRoot.elementFromPoint === 'function' && guard < 12) {
+          var inner = el.shadowRoot.elementFromPoint(x, y);
+          if (!inner || inner === el) break;
+          el = inner;
+          guard += 1;
+        }
+      } catch (e) {}
+      hostEl.style.pointerEvents = prev || 'auto';
+      if (!el || el.nodeType !== 1 || isOurNode(el)) return null;
+      return el;
+    }
+
     function targetFromEvent(event) {
       var path = event.composedPath ? event.composedPath() : null;
-      var el = (path && path.length) ? path[0] : event.target;
-      if (!el || el.nodeType !== 1) return null;
-      return el;
+      var raw = (path && path.length) ? path[0] : event.target;
+      if (raw && isHudNode(raw)) return raw;
+      if (raw && raw.nodeType === 1 && !isOurNode(raw)) return raw;
+      if (typeof event.clientX === 'number' && typeof event.clientY === 'number') {
+        var hit = deepElementFromPoint(event.clientX, event.clientY);
+        if (hit) return hit;
+      }
+      if (!raw || raw.nodeType !== 1) return null;
+      return raw;
+    }
+
+    function canScroll(node, axis) {
+      if (!node || node.nodeType !== 1) return false;
+      var cs = window.getComputedStyle(node);
+      var ov = axis === 'y' ? cs.overflowY : cs.overflowX;
+      if (ov !== 'auto' && ov !== 'scroll' && ov !== 'overlay') return false;
+      return axis === 'y'
+        ? node.scrollHeight > node.clientHeight + 1
+        : node.scrollWidth > node.clientWidth + 1;
+    }
+
+    function onWheel(event) {
+      if (typeof event.clientX !== 'number' || typeof event.clientY !== 'number') return;
+      var under = deepElementFromPoint(event.clientX, event.clientY);
+      event.preventDefault();
+      var scroller = under;
+      while (scroller && scroller !== document.body && scroller !== document.documentElement) {
+        if ((event.deltaY && canScroll(scroller, 'y')) || (event.deltaX && canScroll(scroller, 'x'))) {
+          scroller.scrollTop += event.deltaY;
+          scroller.scrollLeft += event.deltaX;
+          return;
+        }
+        scroller = parentAcrossShadow(scroller);
+      }
+      window.scrollBy(event.deltaX, event.deltaY);
     }
 
     function removeListeners() {
       clearTimeout(timer);
-      document.removeEventListener('mousemove', onMove, true);
-      document.removeEventListener('mousedown', onDown, true);
-      document.removeEventListener('mouseup', onUp, true);
-      document.removeEventListener('pointerdown', onPointerDown, true);
-      document.removeEventListener('dragstart', onDragStart, true);
-      document.removeEventListener('selectstart', onSelectStart, true);
-      document.removeEventListener('click', onClick, true);
-      document.removeEventListener('auxclick', onAuxClick, true);
-      document.removeEventListener('submit', onSwallow, true);
-      document.removeEventListener('keydown', onKey, true);
+      hostEl.removeEventListener('wheel', onWheel);
+      hostEl.removeEventListener('mouseleave', clearHover);
+      window.removeEventListener('mousemove', onMove, true);
+      document.removeEventListener('mouseleave', clearHover, true);
+      document.removeEventListener('mouseout', onMouseOut, true);
+      window.removeEventListener('blur', clearHover);
+      window.removeEventListener('mousedown', onDown, true);
+      window.removeEventListener('mouseup', onUp, true);
+      window.removeEventListener('pointerdown', onPointerDown, true);
+      window.removeEventListener('pointerup', onPointerUp, true);
+      window.removeEventListener('dragstart', onDragStart, true);
+      window.removeEventListener('selectstart', onSelectStart, true);
+      window.removeEventListener('click', onClick, true);
+      window.removeEventListener('auxclick', onAuxClick, true);
+      window.removeEventListener('dblclick', onAuxClick, true);
+      window.removeEventListener('contextmenu', onAuxClick, true);
+      window.removeEventListener('submit', onSwallow, true);
+      window.removeEventListener('keydown', onKey, true);
     }
 
     function teardown() {
@@ -516,24 +582,36 @@ export const PICK_CODE = `(function () {
       if (!el || isOurNode(el)) return;
       event.preventDefault();
       event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
       dragEl = el;
     }
 
-    function onUp() {
-      dragEl = null;
+    function onUp(event) {
+      var el = targetFromEvent(event);
+      if (!el || isOurNode(el)) { dragEl = null; return; }
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
     }
 
     function onDragStart(event) {
       event.preventDefault();
+      event.stopPropagation();
     }
 
     function onSelectStart(event) {
       event.preventDefault();
+      event.stopPropagation();
     }
 
     function clearHover() {
       box.style.display = 'none';
       tip.style.display = 'none';
+    }
+
+    function onMouseOut(event) {
+      var to = event.relatedTarget || event.toElement;
+      if (!to || to === document.documentElement) clearHover();
     }
 
     function onMove(event) {
@@ -557,11 +635,21 @@ export const PICK_CODE = `(function () {
       if (!el || isOurNode(el)) return;
       event.preventDefault();
       event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+    }
+
+    function onPointerUp(event) {
+      var el = targetFromEvent(event);
+      if (!el || isOurNode(el)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
     }
 
     function onSwallow(event) {
       event.preventDefault();
       event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
     }
 
     function onAuxClick(event) {
@@ -573,8 +661,13 @@ export const PICK_CODE = `(function () {
     }
 
     function onClick(event) {
+      var startEl = dragEl;
+      dragEl = null;
       var el = targetFromEvent(event);
       if (!el || isOurNode(el)) return;
+      if (startEl && startEl.isConnected && startEl !== el) {
+        el = commonAncestor(startEl, el);
+      }
       var primary = typeof event.button !== 'number' || event.button === 0;
       event.preventDefault();
       event.stopPropagation();
@@ -614,21 +707,28 @@ export const PICK_CODE = `(function () {
       timer = setTimeout(function () { finish({ ok: false, timeout: true, action: 'done' }); }, 1800000);
     }
 
-    document.addEventListener('mousemove', onMove, true);
-    document.addEventListener('mousedown', onDown, true);
-    document.addEventListener('mouseup', onUp, true);
-    document.addEventListener('pointerdown', onPointerDown, true);
-    document.addEventListener('dragstart', onDragStart, true);
-    document.addEventListener('selectstart', onSelectStart, true);
-    document.addEventListener('click', onClick, true);
-    document.addEventListener('auxclick', onAuxClick, true);
-    document.addEventListener('submit', onSwallow, true);
-    document.addEventListener('keydown', onKey, true);
+    hostEl.addEventListener('wheel', onWheel, { passive: false });
+    hostEl.addEventListener('mouseleave', clearHover);
+    window.addEventListener('mousemove', onMove, true);
+    document.addEventListener('mouseleave', clearHover, true);
+    document.addEventListener('mouseout', onMouseOut, true);
+    window.addEventListener('blur', clearHover);
+    window.addEventListener('mousedown', onDown, true);
+    window.addEventListener('mouseup', onUp, true);
+    window.addEventListener('pointerdown', onPointerDown, true);
+    window.addEventListener('pointerup', onPointerUp, true);
+    window.addEventListener('dragstart', onDragStart, true);
+    window.addEventListener('selectstart', onSelectStart, true);
+    window.addEventListener('click', onClick, true);
+    window.addEventListener('auxclick', onAuxClick, true);
+    window.addEventListener('dblclick', onAuxClick, true);
+    window.addEventListener('contextmenu', onAuxClick, true);
+    window.addEventListener('submit', onSwallow, true);
+    window.addEventListener('keydown', onKey, true);
     armTimeout();
 
     var api = {
-      /* The pencil/pill toggle: stop picking but keep what was already picked.
-         Distinct from Esc/Done, which also deselects. */
+      /* The pencil/pill toggle: stop picking and unhighlight. */
       stop: function () { finish({ ok: false, cancelled: true, action: 'stop' }); },
       /* Called when the host re-arms while this picker is still listening:
          keep the listeners, adopt the new mode/count, and hand back a pick
@@ -636,6 +736,8 @@ export const PICK_CODE = `(function () {
       adopt: function (nextMulti, nextCount) {
         multi = Boolean(nextMulti);
         COUNT = Math.max(0, Math.floor(Number(nextCount) || 0));
+        btnClear.style.display = COUNT > 0 ? 'inline-block' : 'none';
+        btnDone.textContent = 'Esc';
         syncHud();
         armTimeout();
         if (!buffered) return null;
@@ -647,9 +749,6 @@ export const PICK_CODE = `(function () {
     };
 
     window.__elementEditPicker = api;
-
-    var first = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
-    if (first && first.nodeType === 1 && !isOurNode(first)) place(first);
   });
 })()`;
 export function buildPickCode(initialMulti, count) {
@@ -940,13 +1039,10 @@ async function beginPick(t, startMulti = false) {
                 return; // superseded: mode was toggled off
             const result = parseResult(raw);
             if (!result?.ok || !result.pick) {
-                // Esc / Done in the page deselects everything: stop picking and drop the
-                // carry plus its markers. 'clear' does the same for the queue. 'stop'
-                // (pencil/pill toggle) only ends the run and keeps what was picked.
-                if (result?.action === 'clear' || result?.action === 'done') {
-                    clearPending(sessionKey);
-                    lastPicks = [];
-                }
+                // Any exit (Esc / Done / Clear in the page, timeout, or pencil/pill toggle)
+                // stops picking and unhighlights / clears the pending elements.
+                clearPending(sessionKey);
+                lastPicks = [];
                 break;
             }
             const queueMode = Boolean(result.multi);
@@ -986,7 +1082,11 @@ async function beginPick(t, startMulti = false) {
         }
     }
     catch (error) {
-        host.notifyError(`${t('failed')} ${error instanceof Error ? error.message : String(error)}`);
+        if (mine === runToken && $armed.get()) {
+            clearPending(currentSessionKey());
+            lastPicks = [];
+            host.notifyError(`${t('failed')} ${error instanceof Error ? error.message : String(error)}`);
+        }
     }
     finally {
         if (mine === runToken) {
@@ -997,10 +1097,13 @@ async function beginPick(t, startMulti = false) {
         }
     }
 }
-/** Toggle the picker off; the completed pick(s) stay as the carry. */
-async function stopMode() {
+/** Toggle the picker off and unhighlight any picked elements. */
+async function stopMode(sessionKey) {
     runToken += 1;
     $armed.set(false);
+    $multiMode.set(false);
+    clearPending(sessionKey);
+    lastPicks = [];
     try {
         await pluginCtx?.preview.executeJavaScript(STOP_CODE);
     }
@@ -1031,10 +1134,8 @@ function EditElementButton() {
             className: cn(GHOST_ICON_BTN, 'relative inline-flex items-center justify-center transition-colors', armed && 'bg-primary/12 text-primary ring-1 ring-primary/40 ring-inset hover:bg-primary/18 hover:text-primary', !armed && hasPending && 'text-foreground'),
             onClick: (event) => {
                 haptic('tap');
-                if ($armed.get()) {
+                if ($armed.get() || getPending().length > 0) {
                     void stopMode();
-                    if (getPending().length > 0)
-                        host.composer.focus(null);
                 }
                 else if (event?.shiftKey) {
                     void beginPick(t, true);
@@ -1045,7 +1146,7 @@ function EditElementButton() {
             },
             children: [
                 jsx(Codicon, { name: 'inspect', size: '0.875rem' }),
-                hasPending && !armed
+                hasPending
                     ? jsx('span', {
                         'aria-hidden': 'true',
                         className: 'pointer-events-none absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-1 font-mono text-[0.5625rem] font-semibold leading-none text-primary-foreground shadow-xs',
@@ -1077,12 +1178,7 @@ function StatusBarPickerChip() {
                 : 'text-(--ui-text-secondary) hover:bg-(--chrome-action-hover) hover:text-foreground'),
             onClick: () => {
                 haptic('tap');
-                if ($armed.get()) {
-                    void stopMode();
-                }
-                else {
-                    clearPending();
-                }
+                void stopMode();
             },
             children: [
                 jsx(Codicon, { name: 'inspect', size: '0.75rem' }),
@@ -1146,8 +1242,9 @@ const plugin = {
                                 label: `✕ ${prefix}${shortLabelFor(pick)} · ${pick.rect.w}×${pick.rect.h}`,
                                 run: () => {
                                     clearPending(context.sessionId, idx);
-                                    if ($armed.get() && getPending(context.sessionId).length === 0)
-                                        void stopMode();
+                                    if ($armed.get() && getPending(context.sessionId).length === 0) {
+                                        void stopMode(context.sessionId);
+                                    }
                                 }
                             };
                         });
@@ -1157,9 +1254,7 @@ const plugin = {
                                 id: 'element-edit.pending.clear-all',
                                 label: `Clear all (${list.length})`,
                                 run: () => {
-                                    clearPending(context.sessionId);
-                                    if ($armed.get())
-                                        void stopMode();
+                                    void stopMode(context.sessionId);
                                 }
                             });
                         }
@@ -1176,8 +1271,6 @@ const plugin = {
                         const list = getPending(sessionKey);
                         if (!list.length || !draft.text.trim())
                             return draft;
-                        if ($armed.get())
-                            void stopMode();
                         // Verify at least the picked selector(s) still resolve on the live page.
                         const ctx = pluginCtx;
                         let alive = false;
@@ -1195,7 +1288,6 @@ const plugin = {
                             return draft;
                         }
                         const next = withContext(draft.text, list);
-                        clearPending(sessionKey);
                         return { ...draft, text: next };
                     }
                 },
@@ -1244,9 +1336,7 @@ const plugin = {
                     keywords: ['element', 'clear', 'deselect', 'pick'],
                     label: t('paletteClear'),
                     run: () => {
-                        clearPending();
-                        if ($armed.get())
-                            void stopMode();
+                        void stopMode();
                     }
                 },
                 id: 'palette-clear'
@@ -1259,13 +1349,8 @@ const plugin = {
                     id: 'elementEdit.pick',
                     label: t('keybind'),
                     run: () => {
-                        if ($armed.get()) {
+                        if ($armed.get() || getPending().length > 0) {
                             void stopMode();
-                            if (getPending().length > 0)
-                                host.composer.focus(null);
-                        }
-                        else if (getPending().length > 0) {
-                            clearPending();
                         }
                         else {
                             void beginPick(t, false);
