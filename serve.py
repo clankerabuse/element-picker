@@ -22,8 +22,13 @@ Protocol
     DELETE /__picks       clears the queue
     POST   /__edit        {selector, prop, value} a live style edit made in the
                           page; written to <picks>/last-edit.json + picks.log
+    GET    /__live.js     the reload client (injected as an external tag too)
+    GET    /__rev         {"rev", "files", "subs"} — the change counter the client
+                          polls once a second, the fallback for a dead SSE
+    GET    /__reload      force every open page to refresh (bumps the counter)
     GET    /__events      Server-Sent Events: one message per pick / queued pick
                           / edit / clear as event: pick|queue|edit|clear, plus a
+                          "reload" event when a served file changes, and a
                           ": ping" comment every 15s — a watcher reacts without
                           polling the files
 
@@ -45,6 +50,8 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SNIPPET = b'<script src="/__picker.js"></script>'
+LIVE_SNIPPET = b'<script src="/__live.js" defer></script>'
+LIVE_ENABLED = True
 
 _CTRL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 
@@ -55,7 +62,228 @@ def safe(value) -> str:
         return ""
     return _CTRL.sub("", value if isinstance(value, str) else str(value))
 
-PICKER_JS = b""
+LIVE_JS = b"""/* Live reload for serve.py.
+ *
+ * External script on purpose (script-src 'self' sites block inline tags).
+ * Two channels, because one is not enough in the real world:
+ *   1. push  - /__events (SSE) delivers a "reload" the moment a file changes
+ *   2. pull  - /__rev is a revision counter polled once a second, so a frozen
+ *              tab, a dropped stream or a server restart still catches up
+ * A reload keeps the viewport where it was. ?live=off skips this file.
+ */
+(function () {
+  if (window.__live) return;
+
+  var SCROLL_KEY = "__live:scroll";
+  var href = location.href;
+  var state = window.__live = {
+    rev: null, events: 0, reloads: 0, sse: "connecting", files: null, hold: false
+  };
+
+  function remember() {
+    try {
+      sessionStorage.setItem(SCROLL_KEY, JSON.stringify({ href: href, y: window.scrollY }));
+    } catch (e) {}
+  }
+
+  try {
+    var raw = sessionStorage.getItem(SCROLL_KEY);
+    if (raw) {
+      sessionStorage.removeItem(SCROLL_KEY);
+      var saved = JSON.parse(raw);
+      if (saved && saved.href === href && saved.y > 0) {
+        window.scrollTo(0, saved.y);
+        window.addEventListener("load", function () { window.scrollTo(0, saved.y); });
+      }
+    }
+  } catch (e) {}
+
+  var timer = null;
+
+  function refresh(files) {
+    if (files) state.files = files;
+    if (state.hold) return;                     // window.__live.hold = true pauses it
+    clearTimeout(timer);
+    // editors write a file in several steps: one reload per save, not per write
+    timer = setTimeout(function () {
+      state.reloads++;
+      remember();
+      location.reload();
+    }, 120);
+  }
+
+  state.refresh = function () { refresh(null); };   // window.__live.refresh() on demand
+
+  function note(info) {
+    if (!info) return;
+    if (typeof info.rev === "number" && (state.rev === null || info.rev > state.rev)) {
+      state.rev = info.rev;
+    }
+  }
+
+  // -- push ---------------------------------------------------------------
+  try {
+    var es = new EventSource("/__events");
+    state.es = es;
+    es.addEventListener("hello", function (ev) {
+      state.sse = "open";
+      try { note(JSON.parse(ev.data)); } catch (e) {}
+    });
+    es.addEventListener("reload", function (ev) {
+      state.events++;
+      var info = null;
+      try { info = JSON.parse(ev.data); } catch (e) {}
+      note(info);
+      refresh(info && info.files);
+    });
+    es.onerror = function () { state.sse = "retrying"; };
+  } catch (e) { state.sse = "unavailable"; }
+
+  // -- pull ---------------------------------------------------------------
+  var busy = false;
+  function poll() {
+    if (busy || document.readyState === "loading") return;
+    busy = true;
+    var req = new XMLHttpRequest();
+    req.open("GET", "/__rev", true);
+    req.timeout = 4000;
+    req.onload = function () {
+      busy = false;
+      if (req.status !== 200) { state.sse = state.sse === "open" ? "open" : "offline"; return; }
+      var body = null;
+      try { body = JSON.parse(req.responseText); } catch (e) { return; }
+      if (typeof body.rev !== "number") return;
+      if (state.rev === null) { state.rev = body.rev; return; }   // baseline
+      if (body.rev !== state.rev) {
+        state.events++;
+        note(body);
+        refresh(body.files);
+      }
+    };
+    req.onerror = req.ontimeout = function () { busy = false; state.sse = "offline"; };
+    req.send();
+  }
+  poll();
+  setInterval(poll, 1000);
+})();
+"""
+
+# Watchlist: things that change what the page looks like. Editors also rewrite
+# temp files, so sweep only these extensions and skip the usual noise dirs.
+WATCH_EXTS = {
+    ".html", ".htm", ".css", ".js", ".mjs", ".cjs", ".json", ".svg",
+    ".png", ".jpg", ".jpeg", ".webp", ".avif", ".gif", ".woff", ".woff2",
+}
+SKIP_DIRS = {"picks", "node_modules", ".git", "__pycache__"}
+
+PICKER_LOCK = threading.Lock()
+
+# Bumped only when a served file changes (picks must never trigger a reload).
+# /__rev hands it to the client, whose 1s poll is the fallback for a dead SSE.
+REV = 0
+LAST_CHANGED: list = []
+REV_LOCK = threading.Lock()
+
+
+def bump_rev(files: list) -> int:
+    global REV, LAST_CHANGED
+    with REV_LOCK:
+        REV += 1
+        LAST_CHANGED = list(files)
+        return REV
+
+
+def live_state() -> dict:
+    with REV_LOCK:
+        return {"rev": REV, "files": list(LAST_CHANGED), "subs": len(BUS.subs)}
+
+
+def picker_bytes() -> bytes:
+    with PICKER_LOCK:
+        return PICKER_JS
+
+
+def set_picker_bytes(data: bytes) -> None:
+    global PICKER_JS
+    with PICKER_LOCK:
+        PICKER_JS = data
+
+
+def stable_read(path: str, tries: int = 4) -> bytes:
+    """Read a file an editor may be halfway through writing: accept only a read
+    whose size and mtime held still across it."""
+    data = b""
+    for _ in range(tries):
+        try:
+            before = os.stat(path)
+            data = open(path, "rb").read()
+            after = os.stat(path)
+        except OSError:
+            return data
+        if (before.st_mtime_ns, before.st_size) == (after.st_mtime_ns, after.st_size) \
+                and len(data) == after.st_size:
+            return data
+        time.sleep(0.08)
+    return data
+
+
+def snapshot(root: str) -> dict:
+    out = {}
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")]
+        for name in filenames:
+            if os.path.splitext(name)[1].lower() not in WATCH_EXTS:
+                continue
+            path = os.path.join(dirpath, name)
+            try:
+                st = os.stat(path)
+            except OSError:
+                continue
+            out[path] = (st.st_mtime_ns, st.st_size)
+    return out
+
+
+def watch_loop(root: str, picker_path: str, interval: float = 0.4) -> None:
+    """Publish "reload" when a served file changes.
+
+    Polling rather than inotify keeps the server stdlib-only, and a 0.4s sweep
+    of a fixture tree costs nothing. picker.js is watched separately so an edit
+    to it is picked up without restarting the server.
+    """
+    prev = snapshot(root)
+    try:
+        st = os.stat(picker_path)
+        picker_stamp = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        picker_stamp = None
+
+    while True:
+        time.sleep(interval)
+        cur = snapshot(root)
+        changed = [os.path.relpath(p, root) for p, stamp in cur.items() if prev.get(p) != stamp]
+        changed += [os.path.relpath(p, root) for p in prev if p not in cur]
+        prev = cur
+
+        try:
+            st = os.stat(picker_path)
+            stamp = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            stamp = None
+        if stamp != picker_stamp:
+            picker_stamp = stamp
+            fresh = stable_read(picker_path)
+            if fresh:
+                set_picker_bytes(fresh)
+                changed.append(os.path.basename(picker_path))
+
+        if changed:
+            changed.sort()
+            rev = bump_rev(changed)
+            print("\n=== RELOAD rev=%d %s" % (rev, safe(", ".join(changed[:4])
+                                     + (" +%d more" % (len(changed) - 4) if len(changed) > 4 else ""))),
+                  flush=True)
+            BUS.publish("reload", {"rev": rev, "files": changed, "at": time.time()})
+
 PICKS_DIR = os.path.join(HERE, "picks")
 LAST = os.path.join(PICKS_DIR, "last-pick.json")
 LOG = os.path.join(PICKS_DIR, "picks.log")
@@ -178,7 +406,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.wfile.flush()
 
         try:
-            send("hello", {"queue": len(read_queue()), "last_pick": os.path.exists(LAST)})
+            send("hello", {"queue": len(read_queue()), "last_pick": os.path.exists(LAST),
+                           "rev": live_state()["rev"]})
             while True:
                 try:
                     msg = q.get(timeout=15)
@@ -200,12 +429,30 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/__events":
             self._sse()
             return
-        if path.startswith("/__picker.js"):
+        if path == "/__rev":
+            self._json(live_state())
+            return
+        if path == "/__reload":
+            # force every open page to refresh (no file had to change)
+            rev = bump_rev(["__reload"])
+            BUS.publish("reload", {"rev": rev, "files": ["__reload"], "at": time.time()})
+            print("\n=== RELOAD forced (rev=%d)" % rev, flush=True)
+            self._json({"ok": True, "rev": rev})
+            return
+        if path.startswith("/__live.js"):
             self.send_response(200)
             self.send_header("Content-Type", "application/javascript; charset=utf-8")
-            self.send_header("Content-Length", str(len(PICKER_JS)))
+            self.send_header("Content-Length", str(len(LIVE_JS)))
             self.end_headers()
-            self.wfile.write(PICKER_JS)
+            self.wfile.write(LIVE_JS)
+            return
+        if path.startswith("/__picker.js"):
+            body = picker_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/javascript; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
         if path == "/__picks":
             with QUEUE_LOCK:
@@ -223,12 +470,19 @@ class Handler(SimpleHTTPRequestHandler):
         fs_path = self.translate_path(self.path)
         if os.path.isdir(fs_path):
             fs_path = os.path.join(fs_path, "index.html")
-        inject = "picker=off" not in (self.path.split("?")[1] if "?" in self.path else "")
-        if inject and fs_path.endswith((".html", ".htm")) and os.path.isfile(fs_path):
+        query = self.path.split("?")[1] if "?" in self.path else ""
+        inject = "picker=off" not in query
+        live = LIVE_ENABLED and "live=off" not in query
+        if (inject or live) and fs_path.endswith((".html", ".htm")) and os.path.isfile(fs_path):
             with open(fs_path, "rb") as fh:
                 html = fh.read()
-            if SNIPPET not in html:
-                html = html.replace(b"</body>", SNIPPET + b"</body>")
+            tags = b""
+            if live and LIVE_SNIPPET not in html:
+                tags += LIVE_SNIPPET
+            if inject and SNIPPET not in html:
+                tags += SNIPPET
+            if tags:
+                html = html.replace(b"</body>", tags + b"</body>")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(html)))
@@ -328,7 +582,7 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def main() -> None:
-    global PICKER_JS, PICKS_DIR, LAST, LOG, QUEUE, EDIT
+    global LIVE_ENABLED, PICKS_DIR, LAST, LOG, QUEUE, EDIT
 
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("port", nargs="?", type=int, default=8765, help="port to bind (default 8765)")
@@ -336,7 +590,11 @@ def main() -> None:
     ap.add_argument("--picks", default=os.path.join(HERE, "picks"),
                     help="where last-pick.json and picks.log live (default: ./picks next to this script)")
     ap.add_argument("--host", default="127.0.0.1", help="bind address (default 127.0.0.1)")
+    ap.add_argument("--no-live", action="store_true",
+                    help="serve files without the reload client (no file watching)")
     args = ap.parse_args()
+
+    LIVE_ENABLED = not args.no_live
 
     root = os.path.abspath(os.path.expanduser(args.dir))
     if not os.path.isdir(root):
@@ -348,8 +606,9 @@ def main() -> None:
     QUEUE = os.path.join(PICKS_DIR, "queue.json")
     EDIT = os.path.join(PICKS_DIR, "last-edit.json")
     os.makedirs(PICKS_DIR, exist_ok=True)
-    with open(os.path.join(HERE, "picker.js"), "rb") as fh:
-        PICKER_JS = fh.read()
+    picker_path = os.path.join(HERE, "picker.js")
+    with open(picker_path, "rb") as fh:
+        set_picker_bytes(fh.read())
 
     handler = lambda *a, **kw: Handler(*a, directory=root, **kw)  # noqa: E731
     srv = ThreadingHTTPServer((args.host, args.port), handler)
@@ -358,6 +617,12 @@ def main() -> None:
     print("serving %s at http://%s:%d/ (add ?picker=off to skip injection)" % (root, args.host, args.port), flush=True)
     print("picker: 'pick' or Alt+I · 'queue' or Alt+Q · picks -> %s" % LAST, flush=True)
     print("watch: GET /__events (SSE) · queue: GET /__picks · edits: picks/last-edit.json", flush=True)
+    if LIVE_ENABLED:
+        threading.Thread(target=watch_loop, args=(root, picker_path), daemon=True).start()
+        print("live: /__live.js — the page reloads when a served file changes "
+              "(?live=off on the URL, --no-live for the server)", flush=True)
+    else:
+        print("live: off (--no-live)", flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

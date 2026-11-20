@@ -19,9 +19,12 @@ page instead and needs no debugging port.
 
 ## Files
 
+- `plugin.yaml`, `plugin.js`, `desktop/plugin.js` — pre-built root & desktop-subfolder entry points so the repository installs straight from Git (`clankerabuse/element-picker` or `hermes://plugin/install`) with no build step. `npm run build` in `desktop-plugin/` compiles `src/plugin.ts`, syncs both repo entry points, and installs into `~/.hermes/desktop-plugins/element-edit/plugin.js`.
 - `serve.py` — stdlib only. Serves a directory unchanged, injects
-  `<script src="/__picker.js">` into HTML responses in memory, answers the
-  `/__pick`, `/__picks`, `/__edit`, `/__events` endpoints.
+  `<script src="/__live.js">` + `<script src="/__picker.js">` into HTML
+  responses in memory, answers the `/__pick`, `/__picks`, `/__edit`,
+  `/__events` endpoints, and watches the served tree so open tabs reload
+  when a file changes (picker.js included — editing it needs no restart).
 - `picker.js` — badges (pick + queue), outline, marker + numbered pins,
   shadow-piercing selector builder, matched-rule walker, note + live-edit
   boxes, `window.__picker` API (`on`, `off`, `queue`, `describe`, `pick`,
@@ -143,9 +146,18 @@ POST   /__picks       {pick, note} (or a bare pick with "note" inside) appends
 DELETE /__picks       clears the queue, broadcasts "clear"
 POST   /__edit        {selector, prop, value} a live style edit made in the
                       page -> last-edit.json + picks.log, broadcasts "edit"
-GET    /__events      SSE: event: hello|pick|queue|edit|clear, ": ping" every
-                      15s — a watcher reacts without polling the files
+GET    /__live.js     the reload client (also injected as an external tag)
+GET    /__rev         {"rev", "files", "subs"} — change counter + SSE subscriber
+                      count; the client's 1s poll, and the live-reload health
+                      check (subs 0 means no tab is listening)
+GET    /__reload      force every open page to refresh (bumps rev)
+GET    /__events      SSE: event: hello|pick|queue|edit|clear|reload,
+                      ": ping" every 15s — a watcher reacts without polling
+                      the files
 ```
+
+`reload` carries `{files: [...], at}` and is published when a watched file in
+the served tree changes (see Live reload below).
 
 A pick carries `selector`, `tag`, `id`, `classes`, `text` (160 chars), `rect`
 (viewport), `point` (pageX/pageY — unambiguous below the fold), `styles` (16
@@ -157,11 +169,54 @@ CSS combinator pierces shadow roots; treat it as a convention). A pick from
 inside a same-origin iframe adds `frame`, the iframe selectors from the top
 document inward. Queue entries additionally carry `note`, `index`, `queueTs`.
 
+## Live reload
+
+`watch_loop` (a daemon thread, 0.4s poll — polling keeps the server
+stdlib-only) sweeps the served tree for `WATCH_EXTS` and bumps a `REV` counter
+when a file's `(mtime_ns, size)` moves. `/__live.js` reloads on **two
+channels**, because one silently dies in the real world:
+
+1. **push** — `reload` on `/__events` (SSE), carries `{rev, files, at}`
+2. **pull** — `/__rev` polled once a second, returns `{rev, files, subs}`.
+   A frozen background tab, a dropped stream, a proxy or a server restart all
+   leave SSE dead while the page looks fine; the poll catches up regardless.
+
+`REV` moves **only** on file changes — picks must never reload the page. A
+`subs` count in `/__rev` says how many browser tabs are actually listening,
+which is the first thing to check when "it didn't reload". `GET /__reload`
+forces a refresh without touching a file.
+
+- **One reload per save.** Editor saves arrive as a burst; the client coalesces
+  on a 120ms timer and both channels share it, so a save seen twice still
+  reloads once.
+- **Every tab reloads, visible or not.** An earlier version deferred hidden
+  tabs to `visibilitychange`; that is exactly how a tab ends up stale in your
+  face (frozen or throttled background tab, no event delivered). A dev fixture
+  can afford the reload.
+- `window.__live.hold = true` pauses reloads (e.g. mid-pick);
+  `window.__live.refresh()` forces one; the object also carries `rev`,
+  `events`, `reloads`, `sse` and `files` for debugging.
+- **Scroll is kept.** `scrollY` is stashed in `sessionStorage` before the
+  reload and re-applied after `load` (late images shift the page).
+- **picker.js is re-read, not just re-served.** It is stat'd alongside the
+  tree, read through `stable_read` (accept only a read whose mtime/size held
+  still across it, so a half-written save never reaches the browser), and the
+  open page reloads onto the new script.
+- `?live=off` on a URL skips the tag; `--no-live` starts the server without the
+  watcher. Use one of them for scripted verification: an auto-reload in the
+  middle of a pick sequence will silently replace the page under the probe.
+
+What it costs: any file in the served tree triggers a full reload, so a pick in
+flight (armed state, pins, the live-edit box) is thrown away. That is the
+trade for "edit a file, see it" — the picks already written to `picks/` are
+untouched.
+
 ## Don't break these (server)
 
 - The served directory is never modified — injection happens at response time.
-- The script is external, not inline: `script-src 'self'` sites would block an
-  inline tag.
+- Both scripts are external, not inline: `script-src 'self'` sites would block
+  an inline tag. `/__live.js` is served from `serve.py` itself, so the client
+  stays one file (`picker.js`) and live reload costs no extra file.
 - Listeners are capture-phase and the pick calls `preventDefault()` +
   `stopPropagation()`, so links and buttons can be picked without firing.
   While armed, `mousedown`/`dragstart`/`selectstart` are swallowed too — no
@@ -209,13 +264,9 @@ document inward. Queue entries additionally carry `note`, `index`, `queueTs`.
    2 MB (413), answers a malformed Content-Length with 400, and warns when
    bound off-loopback. Not implemented: per-origin trust (dropping
    `html`/`text` for unfamiliar origins).
-3. **One slot, no queue.** Only one pending pick; picking again replaces it.
-   A multi-pick queue (numbered, like annotate's pins) is unimplemented, and the
-   annotation-pins idea in the backlog is the natural basis.
-4. **Session scoping is a heuristic.** Pending state is module-global; the send
-   handler compares `host.state.focusedSessionId` against the session recorded at
-   pick time and silently drops the carry when they differ. A per-session map
-   would be correct; a dropped pick should probably say so.
+3. ~~**One slot, no queue.**~~ **addressed.** Multi-pick queue is supported in the plugin: Shift+click (or toggling `Queue` in the floating in-page HUD pill, or `Shift+click` on the composer inspect button) keeps the picker armed, drops numbered pins (`#1`, `#2`, …), renders individual removable pills plus `Clear all (N)` in `composer.microActions`, and attaches all picked elements at send time. Single-click without Shift/Queue immediately finishes and focuses the composer for the fast 1-element case.
+4. ~~**Session scoping is a heuristic.**~~ **addressed.** Pending picks are stored in a per-session map (`$pendingBySession`) keyed by the session's runtime/stored ID.
+5. **Shadow DOM, matched CSS rules & secret redaction in the plugin** — **addressed.** `PICK_CODE` and `markCode` now pierce open shadow roots (`composedPath()` + ` >>> ` selectors), capture the winning stylesheet rules in cascade order, and redact secret/password/token fields on a cloned subtree in-page before serializing HTML or text.
 5. **Middleware ordering.** Other plugins' middleware runs in the same chain and
    can rewrite our appended block (a prompt-enhancer style transform could
    mangle or duplicate it). No defence today.
