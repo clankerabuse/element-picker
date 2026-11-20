@@ -28,6 +28,9 @@ declare module '@hermes/plugin-sdk' {
 
   export function usePluginI18n(id: string): (key: string, ...args: unknown[]) => string
 
+  export const GHOST_ICON_BTN: string
+  export const PRIMARY_ICON_BTN: string
+
   export const COMPOSER_AREAS: {
     readonly top: 'composer.top'
     readonly bottom: 'composer.bottom'
@@ -140,6 +143,7 @@ declare module '@hermes/plugin-sdk' {
   export interface PluginDefinition {
     capabilities?: string[]
     defaultEnabled?: boolean
+    description?: string
     id: string
     name: string
     register: (ctx: PluginContext) => void
@@ -161,6 +165,7 @@ declare module '@hermes/plugin-sdk' {
     state: {
       /** Runtime id of the focused chat (null on a fresh draft). */
       focusedSessionId: Store<null | string>
+      focusedStoredSessionId?: Store<null | string>
     }
     notify: (payload: { kind: 'error' | 'info' | 'success' | 'warning'; message: string }) => void
     notifyError: (message: string) => void

@@ -1,0 +1,8 @@
+name: element-picker
+label: Element Picker
+version: "2.1.0"
+description: "Point and click elements in the Hermes Desktop preview pane (single pick, drag-sweep group, or Shift+click multi-pick queue) to attach their DOM & CSS context to your prompt."
+author: clankerabuse
+license: MIT
+homepage: https://github.com/clankerabuse/element-picker
+tags: [desktop, preview, element-picker, dom, css, ui]

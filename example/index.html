@@ -319,17 +319,17 @@
     <section id="picker-demo">
       <div class="sec-head">
         <h2>Picker playground</h2>
-        <span class="mono">shadow · iframe · queue · live edit</span>
+        <span class="mono">shadow · iframe · queue · marker</span>
       </div>
       <div class="split">
         <div>
           <ul class="feature-list">
-            <li><span class="idx mono">01</span><div><strong>Queue with notes</strong><small>Click <code>queue</code> (bottom-left, or Alt+Q), then click the five things below one by one — type a note, press Enter. Esc ends the run; read the queue back at <code>/__picks</code>.</small></div></li>
+            <li><span class="idx mono">01</span><div><strong>Queue with pins</strong><small>Hold <kbd>Shift</kbd> and click the five things below one by one — they stay armed and stack numbered pins (<code>#1</code>, <code>#2</code>…). Click a pinned node to toggle it off; Esc or the pen ends the run.</small></div></li>
             <li><span class="idx mono">02</span><div><strong>Shadow DOM</strong><small>The button inside the gauge is in a shadow root. The pick’s selector crosses each boundary with <code>&gt;&gt;&gt;</code> and reports the shadow root’s own rules.</small></div></li>
-            <li><span class="idx mono">03</span><div><strong>Same-origin iframe</strong><small>The framed card is a separate document with its own injected picker. A pick inside it carries the frame chain, e.g. <code>#picker-demo &gt; iframe</code>.</small></div></li>
-            <li><span class="idx mono">04</span><div><strong>Live edit</strong><small>Pick anything, then type e.g. <code>color: #b8492a</code> into the box that appears and press Enter. It lands on <code>el.style</code> immediately and is POSTed to <code>/__edit</code> — see it before touching the source. An empty value removes the property.</small></div></li>
+            <li><span class="idx mono">03</span><div><strong>Same-origin iframe</strong><small>The framed card is a separate document. A pick inside it resolves to the <code>&lt;iframe&gt;</code> element itself — piercing into frame content is not implemented yet.</small></div></li>
+            <li><span class="idx mono">04</span><div><strong>Persistent marker</strong><small>The picked node keeps a dashed box and a <code>picked · button</code> tag that follow scroll and resize, without stealing clicks from the page.</small></div></li>
           </ul>
-          <p class="demo-five"><strong>The five things:</strong> 1 the hero heading · 2 the cart button · 3 the gauge’s button · 4 the framed card’s button · 5 the quote above.</p>
+          <p class="demo-five"><strong>The five things:</strong> 1 the hero heading · 2 the cart button · 3 the gauge’s button · 4 the framed card (resolves to the <code>&lt;iframe&gt;</code>) · 5 the quote above.</p>
         </div>
         <div class="demo-stage">
           <nl-gauge label="jaw capacity — 64%"></nl-gauge>

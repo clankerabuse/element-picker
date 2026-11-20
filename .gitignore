@@ -1,5 +1,2 @@
-picks/
-__pycache__/
-*.pyc
 desktop-plugin/node_modules/
 desktop-plugin/build/

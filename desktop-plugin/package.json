@@ -2,9 +2,10 @@
   "name": "element-edit-desktop-plugin",
   "private": true,
   "type": "module",
-  "description": "Hermes desktop plugin: pick an element in the preview, then say what to change. TypeScript source, built to the uncompiled plugin.js the desktop loader imports.",
+  "description": "Hermes desktop plugin: pick one or more elements in the preview, then describe what to change. TypeScript source built to the uncompiled plugin.js the desktop loader imports.",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/install.mjs",
+    "compile": "tsc -p tsconfig.json",
     "install:plugin": "node scripts/install.mjs",
     "check": "tsc -p tsconfig.json --noEmit"
   },
